@@ -17,6 +17,7 @@ from inference.interact.wrapper import wrapper
 from model.network import XMem
 from inference.interact.s2m_controller import S2MController
 from inference.interact.fbrs_controller import FBRSController
+from inference.inference_core import InferenceCore
 
 from PyQt5.QtWidgets import QApplication
 from inference.interact.gui_api import App
@@ -100,10 +101,10 @@ if __name__ == "__main__":
     config["enable_long_term"] = True
     config["enable_long_term_count_usage"] = True
 
-    HOST = "0.0.0.0"
-    PORT = 8000
+    HOST = "selab.nhtlongcs.com"
+    PORT = 20599
     api_url = "http://{}:{}/api/{}"
-    network = wrapper(XMem, api_url=api_url.format(HOST, PORT, "network"))
+    processor = wrapper(InferenceCore, api_url=api_url.format(HOST, PORT, "network"))
     s2m_controller = wrapper(S2MController, api_url=api_url.format(HOST, PORT, "s2m"))
 
     if args.fbrs_model is not None:
@@ -115,12 +116,12 @@ if __name__ == "__main__":
         fbrs_controller = None
 
     s2m_controller.__init__(num_objects=args.num_objects, ignore_class=255)
-    network.__init__(config=config)
+    processor.__init__(config=config)
 
-    # resource_manager = ResourceManager(
-    #     config
-    # )  # local resource manager (for caching, saving, etc.)
+    resource_manager = ResourceManager(
+        config
+    )  # local resource manager (for caching, saving, etc.)
 
-    # app = QApplication(sys.argv)
-    # ex = App(network, resource_manager, s2m_controller, fbrs_controller, config)
-    # sys.exit(app.exec_())
+    app = QApplication(sys.argv)
+    ex = App(processor, resource_manager, s2m_controller, fbrs_controller, config)
+    sys.exit(app.exec_())

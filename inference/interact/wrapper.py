@@ -1,4 +1,5 @@
 from functools import update_wrapper
+from matplotlib.pyplot import get
 import requests
 from enum import Enum
 import numpy as np
@@ -36,8 +37,11 @@ def _wrap(api_url, func_name, func):
             "func_name": func_name,
             "args": kwargs,
         }
+
         # print(cmd)
         response = requests.post(f"{api_url}", json=cmd)
+        # if create new object, return its variable name
+
         # output = func(*args, **kwargs)
         # print("after-call:", func, args, kwargs, output)
         return response.json()
@@ -46,6 +50,29 @@ def _wrap(api_url, func_name, func):
     # Use "update_wrapper" to keep docstrings and other function metadata
     # intact
     update_wrapper(wrapped, func)
+
+    # We can now return the wrapped function
+    return wrapped
+
+
+def get_method(api_url):
+    """
+    Wraps *func* with additional code.
+    """
+    # we define a wrapper function. This will execute all additional code
+    # before and after the "real" function.
+
+    def wrapped(attribute_name: str):
+        # print("before-call:", func, args, kwargs)
+        # print(f"POST requesting to {api_url}")
+        cmd = {"var_name": attribute_name}
+
+        # print(cmd)
+        response = requests.post(f"{api_url}", json=cmd)
+        result = response.json()
+        if result["code"] == -1:
+            raise AttributeError
+        return result["value"]
 
     # We can now return the wrapped function
     return wrapped
@@ -67,14 +94,15 @@ def wrapper(cls, api_url):
         func = getattr(cls, funcname)
         if not callable(func):
             continue
-
-        # Now we "wrap" the function with our additional code. This is done
-        # in a separate function to keep __new__ somewhat clean
-        wrapped = _wrap(api_url, funcname, func)
+        else:
+            # Now we "wrap" the function with our additional code. This is done
+            # in a separate function to keep __new__ somewhat clean
+            wrapped = _wrap(api_url, funcname, func)
 
         # After wrapping the function we can attach that new function ont
         # our `Wrapper` instance
         setattr(cls, funcname, wrapped)
+    setattr(cls, "get_value", get_method(api_url))
     return cls
 
 

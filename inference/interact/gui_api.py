@@ -61,7 +61,7 @@ from .gui_utils import *
 class App(QWidget):
     def __init__(
         self,
-        net: XMem,
+        processor: InferenceCore,
         resource_manager: ResourceManager,
         s2m_ctrl: S2MController,
         fbrs_ctrl: FBRSController,
@@ -74,8 +74,8 @@ class App(QWidget):
         self.s2m_controller = s2m_ctrl
         self.fbrs_controller = fbrs_ctrl
         self.config = config
-        self.processor = InferenceCoreAPI(net, config)
-        self.processor.set_all_labels(list(range(1, self.num_objects + 1)))
+        self.processor = processor
+        self.processor.set_all_labels(all_labels=list(range(1, self.num_objects + 1)))
         self.res_man = resource_manager
 
         self.num_frames = len(self.res_man)
@@ -225,12 +225,13 @@ class App(QWidget):
         self.mem_every_box, self.mem_every_box_layout = create_parameter_box(
             1, 100, "Memory frame every (r)", callback=self.update_config
         )
-
-        self.work_mem_min.setValue(self.processor.memory.min_mt_frames)
-        self.work_mem_max.setValue(self.processor.memory.max_mt_frames)
-        self.long_mem_max.setValue(self.processor.memory.max_long_elements)
-        self.num_prototypes_box.setValue(self.processor.memory.num_prototypes)
-        self.mem_every_box.setValue(self.processor.mem_every)
+        self.work_mem_min.setValue(self.processor.get_value("memory.min_mt_frames"))
+        self.work_mem_max.setValue(self.processor.get_value("memory.max_mt_frames"))
+        self.long_mem_max.setValue(self.processor.get_value("memory.max_long_elements"))
+        self.num_prototypes_box.setValue(
+            self.processor.get_value("memory.num_prototypes")
+        )
+        self.mem_every_box.setValue(self.processor.get_value("mem_every"))
 
         # import mask/layer
         self.import_mask_button = QPushButton("Import mask")
@@ -916,11 +917,11 @@ class App(QWidget):
 
     def update_memory_size(self):
         try:
-            max_work_elements = self.processor.memory.max_work_elements
-            max_long_elements = self.processor.memory.max_long_elements
+            max_work_elements = self.processor.get_value("memory.max_work_elements")
+            max_long_elements = self.processor.get_value("memory.max_long_elements")
 
-            curr_work_elements = self.processor.memory.work_mem.size
-            curr_long_elements = self.processor.memory.long_mem.size
+            curr_work_elements = self.processor.get_value("memory.work_mem.size")
+            curr_long_elements = self.processor.get_value("memory.long_mem.size")
 
             self.work_mem_gauge.setFormat(f"{curr_work_elements} / {max_work_elements}")
             self.work_mem_gauge.setValue(
