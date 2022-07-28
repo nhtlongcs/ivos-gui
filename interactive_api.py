@@ -8,8 +8,10 @@ from inference.inference_core import InferenceCore
 from inference.interact.fbrs_controller import FBRSController
 from inference.interact.s2m.s2m_network import deeplabv3plus_resnet50 as S2M
 from inference.interact.s2m_controller import S2MController
+from inference.device import detach
 from model.network import XMem
-
+import pickle
+import numpy as np
 
 # https://stackoverflow.com/questions/23983150/how-can-i-log-a-functions-arguments-in-a-reusable-way-in-python
 def arg_logger(func):
@@ -37,6 +39,23 @@ s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
 # get attribute from a.b.c
+
+
+def custom_serializer(obj):
+    if isinstance(obj, (bool, int, str, float)):
+        return obj
+    elif isinstance(obj, np.ndarray):
+        return pickle.dumps(obj).decode("latin-1")
+    elif torch.is_tensor(obj):
+        # return pickle.dumps(obj)
+        return custom_serializer(detach(obj.cpu()).numpy())
+    elif isinstance(obj, dict):
+        return {k: custom_serializer(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [custom_serializer(v) for v in obj]
+    elif obj is None:
+        return obj
+    raise TypeError("Type not serializable", type(obj))
 
 
 def get_attr(obj, attr_str):
@@ -67,13 +86,14 @@ def core_interact(request: dict):
             network = XMem(model_path=network_path, **request.get("args", {}))
             processor = InferenceCore(network=network, **request.get("args", {}))
             print("InferenceCore loaded")
-            return {"code": 0, "result": None}
 
     else:
         result = processor.__getattribute__(request["func_name"])(
             **request.get("args", {})
         )
+        result = custom_serializer(result)
         return {"code": 0, "result": result}
+    return {"code": 0, "result": None}
 
 
 @arg_logger
@@ -95,13 +115,13 @@ def s2m_interact(request: dict):
                 s2m_model = None
             s2m_controller = S2MController(s2m_net=s2m_model, **request.get("args", {}))
             print("network loaded")
-            return {"code": 0, "result": None}
-
     else:
         result = s2m_controller.__getattribute__(request["func_name"])(
             **request.get("args", {})
         )
+        result = custom_serializer(result)
         return {"code": 0, "result": result}
+    return {"code": 0, "result": None}
 
 
 @arg_logger
@@ -117,10 +137,11 @@ def fbrs_interact(request: dict):
             print("loading network")
             fbrs_controller = FBRSController(checkpoint_path=fbrs_model_path)
             print("network loaded")
-            return {"code": 0, "result": None}
 
     else:
         result = fbrs_controller.__getattribute__(request["func_name"])(
             **request.get("args", {})
         )
+        result = custom_serializer(result)
         return {"code": 0, "result": result}
+    return {"code": 0, "result": None}
