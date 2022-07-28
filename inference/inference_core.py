@@ -1,7 +1,8 @@
 from inference.memory_manager import MemoryManager
 from model.network import XMem
 from model.aggregate import aggregate
-
+import torch
+import pickle
 from util.tensor_util import pad_divide_by, unpad
 
 
@@ -42,6 +43,14 @@ class InferenceCore:
     def step(self, image, mask=None, valid_labels=None, end=False):
         # image: 3*H*W
         # mask: num_objects*H*W or None
+        if isinstance(image, str):
+            image_np = pickle.loads(image.encode("latin-1"))
+            image = torch.from_numpy(image_np)
+
+        if isinstance(mask, str):
+            mask_np = pickle.loads(mask.encode("latin-1"))
+            mask = torch.from_numpy(mask_np)
+
         self.curr_ti += 1
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0)  # add the batch dimension
