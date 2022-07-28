@@ -649,8 +649,13 @@ class App(QWidget):
 
         self.console_push_text("Propagation started.")
         self.current_prob = self.processor.step(
-            self.current_image_torch, self.current_prob[1:]
+            image=self.current_image_torch, mask=self.current_prob[1:]
         )
+
+        if isinstance(self.current_prob, str):
+            current_prob_np = pickle.loads(self.current_prob.encode("latin-1"))
+            self.current_prob = torch.from_numpy(current_prob_np)
+
         self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
         # clear
         self.interacted_prob = None
@@ -665,7 +670,12 @@ class App(QWidget):
             self.load_current_image_mask(no_mask=True)
             self.load_current_torch_image_mask(no_mask=True)
 
-            self.current_prob = self.processor.step(self.current_image_torch)
+            self.current_prob = self.processor.step(image=self.current_image_torch)
+
+            if isinstance(self.current_prob, str):
+                current_prob_np = pickle.loads(self.current_prob.encode("latin-1"))
+                self.current_prob = torch.from_numpy(current_prob_np)
+
             self.current_mask = torch_prob_to_numpy_mask(self.current_prob)
 
             self.save_current_mask()
@@ -961,7 +971,7 @@ class App(QWidget):
             self.config["num_prototypes"] = self.num_prototypes_box.value()
             self.config["mem_every"] = self.mem_every_box.value()
 
-            self.processor.update_config(self.config)
+            self.processor.update_config(config=self.config)
 
     def on_clear_memory(self):
         self.processor.clear_memory()

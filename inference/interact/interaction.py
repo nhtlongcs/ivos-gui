@@ -13,6 +13,8 @@ import numpy as np
 import cv2
 import time
 from .interactive_utils import color_map, index_numpy_to_one_hot_torch
+import numpy as np
+import pickle
 
 
 def aggregate_sbg(prob, keep_bg=False, hard=False):
@@ -218,8 +220,13 @@ class ScribbleInteraction(Interaction):
 
     def predict(self):
         self.out_prob = self.controller.interact(
-            self.image.unsqueeze(0), self.prev_mask, self.drawn_map
-        )
+            image=self.image.unsqueeze(0),
+            prev_mask=self.prev_mask,
+            scr_mask=self.drawn_map,
+        )  # read from server
+        if isinstance(self.out_prob, str):
+            image_np = pickle.loads(self.out_prob.encode("latin-1"))
+            self.out_prob = torch.from_numpy(image_np)
         self.out_prob = aggregate_wbg(self.out_prob, keep_bg=True, hard=True)
         return self.out_prob
 
@@ -251,7 +258,13 @@ class ClickInteraction(Interaction):
             self.pos_clicks.append((x, y))
 
         # Do the prediction
-        self.obj_mask = self.controller.interact(self.image.unsqueeze(0), x, y, not neg)
+        self.obj_mask = self.controller.interact(
+            image=self.image.unsqueeze(0), x=x, y=y, is_positive=not neg
+        )
+
+        if isinstance(self.obj_mask, str):
+            image_np = pickle.loads(self.obj_mask.encode("latin-1"))
+            self.obj_mask = torch.from_numpy(image_np)
 
         # Plot visualization
         if vis is not None:

@@ -3,6 +3,10 @@ from matplotlib.pyplot import get
 import requests
 from enum import Enum
 import numpy as np
+import json
+import pickle
+import torch
+from .device import detach
 
 HOST = "0.0.0.0"
 PORT = "8000"
@@ -23,6 +27,23 @@ class UniversalParser(Enum):
             return list(object)
 
 
+def custom_serializer(obj):
+    if isinstance(obj, (bool, int, str, float)):
+        return obj
+    elif isinstance(obj, np.ndarray):
+        return pickle.dumps(obj).decode("latin-1")
+    elif torch.is_tensor(obj):
+        # return pickle.dumps(obj)
+        return custom_serializer(detach(obj.cpu()).numpy())
+    elif isinstance(obj, dict):
+        return {k: custom_serializer(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [custom_serializer(v) for v in obj]
+    elif obj is None:
+        return obj
+    raise TypeError("Type not serializable", type(obj))
+
+
 def _wrap(api_url, func_name, func):
     """
     Wraps *func* with additional code.
@@ -37,14 +58,23 @@ def _wrap(api_url, func_name, func):
             "func_name": func_name,
             "args": kwargs,
         }
-
         # print(cmd)
+        cmd = custom_serializer(cmd)
+        # try:
+        #     with open("tmp.json", "w", encoding="utf8") as json_file:
+        #         json.dump(cmd, json_file, allow_nan=False)
+        # except:
+        #     print(cmd)
+        #     raise
         response = requests.post(f"{api_url}", json=cmd)
         # if create new object, return its variable name
 
         # output = func(*args, **kwargs)
         # print("after-call:", func, args, kwargs, output)
-        return response.json()
+        result = response.json()
+        if result["code"] == -1:
+            raise AttributeError
+        return result["result"]
         # return None
 
     # Use "update_wrapper" to keep docstrings and other function metadata
