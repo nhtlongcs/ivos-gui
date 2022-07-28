@@ -10,6 +10,11 @@ from inference.interact.s2m.s2m_network import deeplabv3plus_resnet50 as S2M
 from inference.interact.s2m_controller import S2MController
 from inference.device import detach
 from model.network import XMem
+
+from stcn.networks.eval_network import STCNEval
+from stcn.inference.inference_core_new import InferenceCoreNew 
+
+
 import pickle
 import numpy as np
 
@@ -38,6 +43,7 @@ fbrs_controller = None
 s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
+stcn_path = "saves/stcn.pth"
 # get attribute from a.b.c
 
 
@@ -83,8 +89,34 @@ def core_interact(request: dict):
     if request["func_name"] == "__init__":
         if processor is None:
             print("loading InferenceCore")
-            network = XMem(model_path=network_path, **request.get("args", {}))
-            processor = InferenceCore(network=network, **request.get("args", {}))
+            # network = XMem(model_path=network_path, **request.get("args", {}))
+            # processor = InferenceCore(network=network, **request.get("args", {}))
+            
+            device = torch.device('cuda')
+            network = STCNEval(
+                key_backbone="resnet50-mod",
+                value_backbone="resnet18-mod",
+                pretrained=False
+            ).to(device).eval()
+
+            state_dict = torch.load(stcn_path) #["model"]
+            for k in list(state_dict.keys()):
+                if k == "value_encoder.conv1.weight":
+                    if state_dict[k].shape[1] == 2:
+                        pads = torch.zeros((64, 1, 7, 7), device=state_dict[k].device)
+                        state_dict[k] = torch.cat([state_dict[k], pads], 1)
+            
+            network.load_state_dict(state_dict, strict=False)
+
+            processor = InferenceCoreNew(network=network, config={
+                'mem_every': 5,
+                'top_k': 20,
+                'max_k': 200,
+                'num_objects': 1,
+                'device': 'cuda',
+                'strategy': 'argmax',
+                'include_last': True ,
+            })
             print("InferenceCore loaded")
 
     else:
