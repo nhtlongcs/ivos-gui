@@ -6,25 +6,10 @@ import numpy as np
 import json
 import pickle
 import torch
-from .device import detach
+from ..device import detach
 
 HOST = "0.0.0.0"
 PORT = "8000"
-
-
-class UniversalParser(Enum):
-    NUMPY = 1
-    INT = 2
-    LIST = 3
-
-    @classmethod
-    def parse(self, object, dst_type):
-        if dst_type == UniversalParser.NUMPY:
-            return np.array(object)
-        elif dst_type == UniversalParser.INT:
-            return int(object)
-        elif dst_type == UniversalParser.LIST:
-            return list(object)
 
 
 def custom_serializer(obj):
