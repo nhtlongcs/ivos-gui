@@ -43,6 +43,7 @@ if __name__ == "__main__":
         "--images", help="Folders containing input images.", default=None
     )
     parser.add_argument("--video", help="Video file readable by OpenCV.", default=None)
+    parser.add_argument("--volume", help="CT Volume .nii.gz file readable by Nibabel.", default=None)
     parser.add_argument(
         "--workspace",
         help="directory for storing buffered images (if needed) and output masks",
