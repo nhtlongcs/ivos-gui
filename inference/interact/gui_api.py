@@ -51,6 +51,7 @@ from model.network import XMem
 from inference.inference_core import InferenceCore
 from .s2m_controller import S2MController
 from .fbrs_controller import FBRSController
+from .reference_controller import ReferenceController
 
 from .interactive_utils import *
 from .interaction import *
@@ -65,6 +66,7 @@ class App(QWidget):
         resource_manager: ResourceManager,
         s2m_ctrl: S2MController,
         fbrs_ctrl: FBRSController,
+        refer_ctrl: ReferenceController,
         config,
     ):
         super().__init__()
@@ -73,6 +75,7 @@ class App(QWidget):
         self.num_objects = config["num_objects"]
         self.s2m_controller = s2m_ctrl
         self.fbrs_controller = fbrs_ctrl
+        self.refer_controller = refer_ctrl
         self.config = config
         self.processor = processor
         self.processor.set_all_labels(all_labels=list(range(1, self.num_objects + 1)))
@@ -150,18 +153,21 @@ class App(QWidget):
         self.save_visualization = False
 
         # Radio buttons for type of interactions
-        self.curr_interaction = "Click"
+        self.curr_interaction = "Scribble"
         self.interaction_group = QButtonGroup()
+        self.radio_refer = QRadioButton("Refer")
         self.radio_fbrs = QRadioButton("Click")
         self.radio_s2m = QRadioButton("Scribble")
         self.radio_free = QRadioButton("Free")
+        self.interaction_group.addButton(self.radio_refer)
         self.interaction_group.addButton(self.radio_fbrs)
         self.interaction_group.addButton(self.radio_s2m)
         self.interaction_group.addButton(self.radio_free)
+        self.radio_refer.toggled.connect(self.interaction_radio_clicked)
         self.radio_fbrs.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
-        self.radio_fbrs.toggle()
+        self.radio_refer.toggle()
 
         # Main canvas -> QLabel
         self.main_canvas = QLabel()
@@ -254,6 +260,7 @@ class App(QWidget):
         interact_topbox = QHBoxLayout()
         interact_botbox = QHBoxLayout()
         interact_topbox.setAlignment(Qt.AlignCenter)
+        interact_topbox.addWidget(self.radio_refer)
         interact_topbox.addWidget(self.radio_s2m)
         interact_topbox.addWidget(self.radio_fbrs)
         interact_topbox.addWidget(self.radio_free)
@@ -408,6 +415,10 @@ class App(QWidget):
             self.brush_slider.setDisabled(True)
         elif self.radio_fbrs.isChecked():
             self.curr_interaction = "Click"
+            self.brush_size = 3
+            self.brush_slider.setDisabled(True)
+        elif self.radio_refer.isChecked():
+            self.curr_interaction = "Refer"
             self.brush_size = 3
             self.brush_slider.setDisabled(True)
         elif self.radio_free.isChecked():
@@ -832,6 +843,19 @@ class App(QWidget):
                     self.fbrs_controller,
                     self.current_object,
                 )
+        elif self.curr_interaction == "Refer":
+            if (
+                last_interaction is None
+                or type(last_interaction) != ReferenceInteraction
+                or last_interaction.tar_obj != self.current_object
+            ):
+                self.complete_interaction()
+                new_interaction = ReferenceInteraction(
+                    image,
+                    self.current_prob,
+                    (h, w),
+                    self.refer_controller,
+                )
 
         if new_interaction is not None:
             self.interaction = new_interaction
@@ -888,6 +912,11 @@ class App(QWidget):
             self.vis_map, self.vis_alpha = interaction.push_point(
                 ex, ey, self.right_click, (self.vis_map, self.vis_alpha)
             )
+        elif self.curr_interaction == "Refer":
+            interaction.push_point(
+                self.cursur / self.num_frames
+            )
+            
 
         self.interacted_prob = interaction.predict()
         self.update_interacted_mask()

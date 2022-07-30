@@ -302,3 +302,30 @@ class ClickInteraction(Interaction):
         self.out_prob[self.tar_obj] = self.obj_mask
         self.out_prob = aggregate_wbg(self.out_prob[1:], keep_bg=True, hard=True)
         return self.out_prob
+
+
+class ReferenceInteraction(Interaction):
+    def __init__(self, image, prev_mask, true_size, controller):
+        """
+        prev_mask in a prob. form
+        """
+        super().__init__(image, prev_mask, true_size, controller)
+
+    """
+    neg - Negative interaction or not
+    vis - a tuple (visualization map, pass through alpha). None if not needed.
+    """
+
+    def push_point(self, rel_pos):
+
+        # Do the prediction
+        self.obj_mask = self.controller.interact(
+            image=self.image.unsqueeze(0), rel_pos=rel_pos
+        )
+
+        if isinstance(self.obj_mask, str):
+            image_np = pickle.loads(self.obj_mask.encode("latin-1"))
+            self.obj_mask = torch.from_numpy(image_np)
+
+    def predict(self):
+        return self.obj_mask
