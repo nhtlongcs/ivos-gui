@@ -43,7 +43,7 @@ fbrs_controller = None
 s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
-stcn_path = "saves/stcn.pth"
+stcn_path = "saves/stcn_flare22.pth"
 # get attribute from a.b.c
 
 
@@ -99,20 +99,20 @@ def core_interact(request: dict):
                 pretrained=False
             ).to(device).eval()
 
-            state_dict = torch.load(stcn_path) #["model"]
+            state_dict = torch.load(stcn_path)["model"]
             for k in list(state_dict.keys()):
                 if k == "value_encoder.conv1.weight":
                     if state_dict[k].shape[1] == 2:
                         pads = torch.zeros((64, 1, 7, 7), device=state_dict[k].device)
                         state_dict[k] = torch.cat([state_dict[k], pads], 1)
             
-            network.load_state_dict(state_dict, strict=False)
+            network.load_state_dict(state_dict)
 
             processor = InferenceCoreNew(network=network, config={
                 'mem_every': 5,
                 'top_k': 20,
                 'max_k': 200,
-                'num_objects': 1,
+                'num_objects': 14,
                 'device': 'cuda',
                 'strategy': 'argmax',
                 'include_last': True ,

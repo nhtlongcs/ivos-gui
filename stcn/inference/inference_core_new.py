@@ -79,7 +79,7 @@ class InferenceCoreNew:
         # self.prob = torch.zeros((self.k, t, 1, nh, nw), dtype=torch.float32)
         # self.prob[0] = 1e-7
 
-        self.mem_bank = MemoryBankWithFlush(k=self.k, top_k=self.top_k, max_k=self.max_k)
+        self.mem_bank = MemoryBankWithFlush(k=self.k-1, top_k=self.top_k, max_k=self.max_k)
         self.memory = WorkaroundMemory()
         # self.deep_update_every = None
         # self.enable_long_term = None
@@ -120,7 +120,6 @@ class InferenceCoreNew:
 
     def interact(self, frame, mask):
         prob = aggregate(mask, keep_bg=True)
-
         # KV pair for the interacting frame
         key_k, _, qf16, _, _ = self.encode_key(frame)
         key_v = self.network.encode_value(
@@ -141,7 +140,6 @@ class InferenceCoreNew:
             self.mem_bank, qf8, qf4, k16, qv16
         )
         out_mask = aggregate(out_mask, keep_bg=True)
-
         if self.include_last or is_mem_frame:
             prev_value = self.network.encode_value(
                 frame.to(self.device), qf16, out_mask[1:].to(self.device)
@@ -172,7 +170,6 @@ class InferenceCoreNew:
     def step(self, image, mask=None, valid_labels=None, end=False):
         # image: 3*H*W
         # mask: num_objects*H*W or None
-
 
         if isinstance(image, str):
             image_np = pickle.loads(image.encode("latin-1"))
@@ -210,48 +207,14 @@ class InferenceCoreNew:
             mask, _ = pad_divide_by(mask, 16)
             mask = mask.unsqueeze(1)
             # NC, 1 , H, W 
-
             self.interact(image, mask)
             result = aggregate(mask, dim=0, keep_bg=True)
         
         if is_mem_frame:
             self.last_mem_ti = self.curr_ti
-        
 
         if result is not None:
             result = unpad(result, self.pad) # (num_obj + 1, H, W)
             result = result.squeeze()
-            print(result.shape)
-            # prob = F.interpolate(result, (ori_h, ori_w), mode='bilinear', align_corners=False)
-            # print(prob.shape)
 
-        # msk = adict["msk"]  # NC, B, 1 , H, W
-        # rgb = adict["rgb"]
-        # guide_indices = adict["guide_indices"]
-
-        # # iter through all reference images and register into memory
-        # prop_range = REFERENCER.find_propagation_range(
-        #     guide_indices, length=msk.shape[0]
-        # )
-        # print(prop_range)
-        # for prange in prop_range:
-        #     start_idx, end_idx = prange
-        #     tmp_msk = self.efficient_encode(msk[start_idx])  # NC, B, 1 , H, W -> NC, 1 , H, W 
-        #     self.interact(tmp_msk, start_idx, end_idx)
-        #     self.flush_memory(self.top_k)
-
-        # # reverse backprop
-        # if adict.get("bidirectional", None):
-        #     self.flush_memory(self.top_k)  # clear memory
-        #     rev_prop_range = REFERENCER.find_propagation_range(
-        #         list(reversed(guide_indices)), length=msk.shape[0]
-        #     )
-        #     # iter through all reference images and register into memory
-        #     for prange in rev_prop_range:
-        #         start_idx, end_idx = prange
-        #         tmp_msk = self.efficient_encode(msk[start_idx])
-        #         self.interact(tmp_msk, start_idx, end_idx)
-        #         self.flush_memory(self.top_k)
-
-        # out_masks = self.smart_aggregate(strategy = self.strategy) 
         return result
