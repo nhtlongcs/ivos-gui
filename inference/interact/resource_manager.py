@@ -7,6 +7,8 @@ import cv2
 from PIL import Image
 import numpy as np
 
+from util.ct_volume.windowing_ct import windowing_ct
+
 from util.palette import davis_palette
 import progressbar
  
@@ -39,6 +41,7 @@ class ResourceManager:
         # determine inputs
         images = config['images']
         video = config['video']
+        volume = config['volume']
         self.workspace = config['workspace']
         self.size = config['size']
         self.palette = davis_palette
@@ -49,6 +52,8 @@ class ResourceManager:
                 basename = path.basename(images)
             elif video is not None:
                 basename = path.basename(video)[:-4]
+            elif volume is not None:
+                basename = path.basename(volume)[:-7]
             else:
                 raise NotImplementedError(
                     'Either images, video, or workspace has to be specified')
@@ -60,6 +65,7 @@ class ResourceManager:
         # determine the location of input images
         need_decoding = False
         need_resizing = False
+        need_windowing_ct = False
         if path.exists(path.join(self.workspace, 'images')):
             pass
         elif images is not None:
@@ -67,6 +73,8 @@ class ResourceManager:
         elif video is not None:
             # will decode video into frames later
             need_decoding = True
+        elif volume is not None:
+            need_windowing_ct = True
 
         # create workspace subdirectories
         self.image_dir = path.join(self.workspace, 'images')
@@ -82,6 +90,11 @@ class ResourceManager:
         if need_decoding:
             self._extract_frames(video)
 
+        print(volume)
+        if need_windowing_ct:
+            print("preprocessing")
+            self._windowing_ct(volume, self.image_dir)
+            
         # copy/resize existing images to the workspace
         if need_resizing:
             self._copy_resize_frames(images)
@@ -117,6 +130,11 @@ class ResourceManager:
             frame_index += 1
             bar.update(frame_index)
         bar.finish()
+        print('Done!')
+
+
+    def _windowing_ct(self, volume_path, out_dir):
+        windowing_ct(volume_path, out_dir)
         print('Done!')
 
     def _copy_resize_frames(self, images):
