@@ -24,6 +24,14 @@ class S2MController:
             image_np = pickle.loads(image.encode("latin-1"))
             image = torch.from_numpy(image_np)
 
+        if isinstance(prev_mask, str):
+            prev_mask_np = pickle.loads(prev_mask.encode("latin-1"))
+            prev_mask = torch.from_numpy(prev_mask_np)
+
+        if isinstance(scr_mask, str):
+            scr_mask = pickle.loads(scr_mask.encode("latin-1"))
+            # scr_mask = torch.from_numpy(scr_mask_np)
+
         image = image.to(self.device, non_blocking=True)
         prev_mask = prev_mask.unsqueeze(0)
 
@@ -45,7 +53,7 @@ class S2MController:
                 .to(image.device)
             )
 
-            inputs = torch.cat([image, (prev_mask == ki).float().unsqueeze(0), Rs], 1)
+            inputs = torch.cat([image, (prev_mask == ki).float().unsqueeze(0).to(image.device), Rs], 1)
             inputs, pads = pad_divide_by(inputs, 16)
 
             unaggre_mask[ki - 1] = unpad(torch.sigmoid(self.s2m_net(inputs)), pads)
