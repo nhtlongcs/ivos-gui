@@ -161,27 +161,27 @@ with torch.no_grad():
         return {"code": 0, "result": None}
 
 
-    @arg_logger
-    @app.post("/api/fbrs/")
-    def fbrs_interact(request: dict):
-        global fbrs_controller
-        assert "func_name" in request
-        request.setdefault("args", {})
-        if request.get("args", None) is None:
-            request["args"] = {}
-        if request["func_name"] == "__init__":
-            if fbrs_controller is None:
-                print("loading network")
-                fbrs_controller = FBRSController(checkpoint_path=fbrs_model_path)
-                print("network loaded")
+    # @arg_logger
+    # @app.post("/api/fbrs/")
+    # def fbrs_interact(request: dict):
+    #     global fbrs_controller
+    #     assert "func_name" in request
+    #     request.setdefault("args", {})
+    #     if request.get("args", None) is None:
+    #         request["args"] = {}
+    #     if request["func_name"] == "__init__":
+    #         if fbrs_controller is None:
+    #             print("loading network")
+    #             fbrs_controller = FBRSController(checkpoint_path=fbrs_model_path)
+    #             print("network loaded")
 
-        else:
-            result = fbrs_controller.__getattribute__(request["func_name"])(
-                **request.get("args", {})
-            )
-            result = custom_serializer(result)
-            return {"code": 0, "result": result}
-        return {"code": 0, "result": None}
+    #     else:
+    #         result = fbrs_controller.__getattribute__(request["func_name"])(
+    #             **request.get("args", {})
+    #         )
+    #         result = custom_serializer(result)
+    #         return {"code": 0, "result": result}
+    #     return {"code": 0, "result": None}
 
 
     @arg_logger
