@@ -1,4 +1,5 @@
 import ml_collections
+import gdown
 
 def get_b16_config():
     """Returns the ViT-B/16 configuration."""
@@ -163,3 +164,18 @@ PRETRAINED_MODELS = {
     'ViT-L_16': '1-t7A71Row65ZmrnojsqWqf1eCw38oNVy',
     'ViT-L_32': '1slAvKgoUKUHkPdGm1hx8iBcA5augFb5V',
 }
+
+def download_from_drive(id_or_url, output, md5=None, quiet=False, cache=True):
+    if id_or_url.startswith('http') or id_or_url.startswith('https'):
+        url = id_or_url
+    else:
+        url = 'https://drive.google.com/uc?id={}'.format(id_or_url)
+
+    if not cache:
+        return gdown.download(url, output, quiet=quiet)
+    else:
+        return gdown.cached_download(url, md5=md5, quiet=quiet)
+
+def load_pretrained_model(name:str = 'R50-ViT-B_16'):
+    assert name in PRETRAINED_MODELS, f"Cannot find pretrained for {name}. Available models are: {PRETRAINED_MODELS.keys()}"
+    return download_from_drive(PRETRAINED_MODELS[name], output=None, cache=True) 

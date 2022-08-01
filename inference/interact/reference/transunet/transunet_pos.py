@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from scipy import ndimage
-from inference.interact.reference.transunet.vit_seg_configs import CONFIGS
+from inference.interact.reference.transunet.vit_seg_configs import CONFIGS, load_pretrained_model
 from inference.interact.reference.transunet.vit_seg_modeling import (
     Transformer, DecoderCup, SegmentationHead, np2th
 )
@@ -41,8 +41,13 @@ class TransUnetPE(nn.Module):
         )
         self.config = config
 
+        if pretrained:
+            ckpt_path = load_pretrained_model(model_name)
+            state_dict = np.load(ckpt_path)
+            self.load_from(weights=state_dict)
+
     def forward(self, batch: Dict, device: torch.device):
-        x = batch['inputs'].to(device)
+        x = batch['inputs'].float().to(device)
 
         # Labels
         labels = torch.FloatTensor(batch['sids'])
@@ -87,15 +92,8 @@ class TransUnetPE(nn.Module):
             for i, weight in enumerate(weights):
                 outputs[:, i] *= weight
                 
-        if self.num_classes == 1:
-            thresh = adict['thresh']
-            predicts = (outputs > thresh).float()
-        else:
-            predicts = torch.argmax(outputs, dim=1)
-
-        predicts = predicts.cpu().detach().squeeze().numpy()
         return {
-            'masks': predicts
+            'masks': outputs.detach().cpu().numpy()
         } 
 
     def load_from(self, weights):
