@@ -58,7 +58,6 @@ from .resource_manager import ResourceManager
 from .gui_utils import *
 from .classnames import FLARE22_CLASSNAMES
 
-
 class App(QWidget):
     def __init__(
         self,
@@ -83,7 +82,7 @@ class App(QWidget):
         self.height, self.width = self.res_man.h, self.res_man.w
 
         # set window
-        self.setWindowTitle("XMem Demo")
+        self.setWindowTitle("Mask Propagation Demo")
         self.setGeometry(100, 100, self.width, self.height + 100)
         self.setWindowIcon(QIcon("docs/icon.png"))
 
@@ -182,6 +181,47 @@ class App(QWidget):
         self.main_canvas.mouseMoveEvent = self.on_mouse_motion
         self.main_canvas.setMouseTracking(True)  # Required for all-time tracking
         self.main_canvas.mouseReleaseEvent = self.on_mouse_release
+
+        # Legend canvas
+        class Legends(QWidget):
+            def __init__(self, image_path='docs/legends.png'):
+                super().__init__()
+                self.setWindowTitle("Color mapping")
+                self.legend_canvas = QLabel()
+                self.legend_canvas.setAlignment(Qt.AlignCenter)  
+                self.legend_pixmap = QPixmap(image_path)
+
+                self.legend_canvas.setPixmap(
+                    self.legend_pixmap
+                )
+
+                layout = QVBoxLayout()
+                layout.addWidget(self.legend_canvas)
+                self.setLayout(layout)
+
+            def isVisibleWidget(self):
+                if not self.visibleRegion().isEmpty():
+                    return True
+                return False
+
+            def toggle(self):
+                if self.isVisibleWidget():
+                    self.close()
+                else:
+                    self.show()
+                
+
+        self.legend_widget = Legends()
+
+        # Multiview canvas
+        self.num_views = 3
+        self.triple_canvas = QVBoxLayout()
+        self.triple_canvas.setAlignment(Qt.AlignRight)  
+        self.views_canvas = []
+        for i in range(self.num_views):
+            self.views_canvas.append(QLabel())
+            self.views_canvas[i].setMaximumSize(200,200)
+            self.triple_canvas.addWidget(self.views_canvas[i])
 
         # Minimap -> Also a QLbal
         self.minimap = QLabel()
@@ -287,6 +327,7 @@ class App(QWidget):
 
         # Drawing area, main canvas and minimap
         draw_area = QHBoxLayout()
+        draw_area.addLayout(self.triple_canvas, 1)
         draw_area.addWidget(self.main_canvas, 4)
 
         # Minimap area
@@ -402,6 +443,14 @@ class App(QWidget):
         # try to load the default overlay
         self._try_load_layer("./docs/ECCV-logo.png")
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Q:
+            print("Killing")
+            self.parent().close()
+        elif event.key() == Qt.Key_L:
+            self.legend_widget.toggle()
+        event.accept()
+
     def resizeEvent(self, event):
         self.show_current_frame()
 
@@ -484,6 +533,26 @@ class App(QWidget):
                 )
             )
         )
+
+        # update multiview
+        for i in range(self.num_views):
+            view_viz = cv2.cvtColor(self.viz[...,i], cv2.COLOR_GRAY2RGB)
+            view_viz = get_visualization(
+                self.viz_mode, view_viz, self.current_mask, self.overlay_layer
+            )
+            view_viz = view_viz.astype(np.uint8)
+
+            qViewImg = QImage(
+                view_viz.data, width, height, bytesPerLine, QImage.Format_RGB888
+            )
+
+            self.views_canvas[i].setPixmap(
+                QPixmap(
+                    qViewImg.scaled(
+                        self.views_canvas[i].size(), Qt.KeepAspectRatio, Qt.FastTransformation
+                    )
+                )
+            )
 
         self.main_canvas_size = self.main_canvas.size()
         self.image_size = qImg.size()
