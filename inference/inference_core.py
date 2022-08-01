@@ -51,6 +51,7 @@ class InferenceCore:
             mask_np = pickle.loads(mask.encode("latin-1"))
             mask = torch.from_numpy(mask_np)
 
+
         self.curr_ti += 1
         image, self.pad = pad_divide_by(image, 16)
         image = image.unsqueeze(0)  # add the batch dimension
@@ -142,5 +143,9 @@ class InferenceCore:
             if is_deep_update:
                 self.memory.set_hidden(hidden)
                 self.last_deep_update_ti = self.curr_ti
+        
 
-        return unpad(pred_prob_with_bg, self.pad)
+        result = unpad(pred_prob_with_bg, self.pad) # (num_obj + 1, H, W)
+        print(result.shape)
+        
+        return result
