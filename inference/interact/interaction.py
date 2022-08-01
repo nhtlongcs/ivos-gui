@@ -317,7 +317,6 @@ class ReferenceInteraction(Interaction):
     """
 
     def push_point(self, rel_pos):
-
         # Do the prediction
         self.obj_mask = self.controller.interact(
             image=self.image.unsqueeze(0), rel_pos=rel_pos
@@ -325,7 +324,7 @@ class ReferenceInteraction(Interaction):
 
         if isinstance(self.obj_mask, str):
             image_np = pickle.loads(self.obj_mask.encode("latin-1"))
-            self.obj_mask = torch.from_numpy(image_np)
+            self.obj_mask = torch.from_numpy(image_np).squeeze()
 
     def predict(self):
         return self.obj_mask

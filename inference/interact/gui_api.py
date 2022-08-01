@@ -847,7 +847,6 @@ class App(QWidget):
             if (
                 last_interaction is None
                 or type(last_interaction) != ReferenceInteraction
-                or last_interaction.tar_obj != self.current_object
             ):
                 self.complete_interaction()
                 new_interaction = ReferenceInteraction(
