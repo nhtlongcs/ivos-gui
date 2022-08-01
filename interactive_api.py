@@ -1,6 +1,5 @@
 import logging
 from functools import wraps
-
 import torch
 from fastapi import FastAPI
 
@@ -47,6 +46,7 @@ s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
 stcn_path = "saves/stcn_flare22.pth"
+reference_path = "saves/transunetpe.pth"
 # get attribute from a.b.c
 
 
@@ -195,7 +195,7 @@ with torch.no_grad():
         if request["func_name"] == "__init__":
             if refer_controller is None:
                 print("loading refer network") 
-                refer_controller = ReferenceController(**request.get("args", {}))
+                refer_controller = ReferenceController(checkpoint_path=reference_path,**request.get("args", {}))
                 print("network loaded")
         else:
             result = refer_controller.__getattribute__(request["func_name"])(
