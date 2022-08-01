@@ -169,7 +169,7 @@ class App(QWidget):
         self.radio_refer.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
-        self.radio_refer.toggle()
+        self.radio_s2m.toggle()
 
         # Main canvas -> QLabel
         self.main_canvas = QLabel()
@@ -239,12 +239,6 @@ class App(QWidget):
         self.clear_mem_button = QPushButton("Clear memory")
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
-        self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge(
-            "Working memory size"
-        )
-        self.long_mem_gauge, self.long_mem_gauge_layout = create_gauge(
-            "Long-term memory size"
-        )
         self.gpu_mem_gauge, self.gpu_mem_gauge_layout = create_gauge(
             "GPU mem. (all processes, w/ caching)"
         )
@@ -252,34 +246,34 @@ class App(QWidget):
             "GPU mem. (used by torch, w/o caching)"
         )
 
-        self.update_memory_size()
         self.update_gpu_usage()
 
-        self.work_mem_min, self.work_mem_min_layout = create_parameter_box(
-            1, 100, "Min. working memory frames", callback=self.on_work_min_change
+        self.mem_top_k, self.mem_top_k_layout = create_parameter_box(
+            20, 100, "Top k similarity", step=1, callback=self.update_config
         )
-        self.work_mem_max, self.work_mem_max_layout = create_parameter_box(
-            2, 100, "Max. working memory frames", callback=self.on_work_max_change
+
+        self.mem_max_k, self.mem_max_k_layout = create_parameter_box(
+            32, 1280, "Maximum memory stack", step=32, callback=self.update_config
         )
-        self.long_mem_max, self.long_mem_max_layout = create_parameter_box(
-            1000,
-            100000,
-            "Max. long-term memory size",
-            step=1000,
-            callback=self.update_config,
+
+        self.mem_stack_gauge, self.mem_stack_gauge_layout = create_gauge(
+            "Memory stack"
         )
-        self.num_prototypes_box, self.num_prototypes_box_layout = create_parameter_box(
-            32, 1280, "Number of prototypes", step=32, callback=self.update_config
-        )
+
         self.mem_every_box, self.mem_every_box_layout = create_parameter_box(
             1, 100, "Memory frame every (r)", callback=self.update_config
         )
-        self.work_mem_min.setValue(self.processor.get_value("memory.min_mt_frames"))
-        self.work_mem_max.setValue(self.processor.get_value("memory.max_mt_frames"))
-        self.long_mem_max.setValue(self.processor.get_value("memory.max_long_elements"))
-        self.num_prototypes_box.setValue(
-            self.processor.get_value("memory.num_prototypes")
+
+        self.include_last_checkbox = QCheckBox(self)
+        self.include_last_checkbox.setChecked(True)
+
+        self.mem_top_k.setValue(
+            self.processor.get_value("memory.top_k")
         )
+        self.mem_max_k.setValue(
+            self.processor.get_value("memory.max_k")
+        )
+        self.mem_stack_gauge.setValue(self.processor.get_value("memory.cur_k"))
         self.mem_every_box.setValue(self.processor.get_value("mem_every"))
 
         # import mask/layer
@@ -347,16 +341,19 @@ class App(QWidget):
         minimap_area.addWidget(self.minimap)
 
         # Parameters
-        minimap_area.addLayout(self.work_mem_gauge_layout)
-        minimap_area.addLayout(self.long_mem_gauge_layout)
         minimap_area.addLayout(self.gpu_mem_gauge_layout)
         minimap_area.addLayout(self.torch_mem_gauge_layout)
         minimap_area.addWidget(self.clear_mem_button)
-        minimap_area.addLayout(self.work_mem_min_layout)
-        minimap_area.addLayout(self.work_mem_max_layout)
-        minimap_area.addLayout(self.long_mem_max_layout)
-        minimap_area.addLayout(self.num_prototypes_box_layout)
+        minimap_area.addLayout(self.mem_top_k_layout)
+        minimap_area.addLayout(self.mem_max_k_layout)
+        minimap_area.addLayout(self.mem_stack_gauge_layout)
         minimap_area.addLayout(self.mem_every_box_layout)
+
+        # include last
+        include_last_area = QHBoxLayout()
+        include_last_area.addWidget(QLabel("Use last frame as guidance"))
+        include_last_area.addWidget(self.include_last_checkbox)
+        minimap_area.addLayout(include_last_area)
 
         # import mask/layer
         import_area = QHBoxLayout()
@@ -758,7 +755,8 @@ class App(QWidget):
             self.save_current_mask()
             self.show_current_frame(fast=True)
 
-            self.update_memory_size()
+            self.update_gpu_usage()
+            self.update_memory_stack()
             QApplication.processEvents()
 
             if self.cursur == 0 or self.cursur == self.num_frames - 1:
@@ -968,6 +966,8 @@ class App(QWidget):
         self.interacted_prob = interaction.predict()
         self.update_interacted_mask()
         self.update_gpu_usage()
+        self.update_memory_stack()
+
 
         self.pressed = self.right_click = False
 
@@ -1001,51 +1001,47 @@ class App(QWidget):
     def on_gpu_timer(self):
         self.update_gpu_usage()
 
-    def update_memory_size(self):
+    # def update_memory_size(self):
+    #     try:
+    #         max_work_elements = self.processor.get_value("memory.max_work_elements")
+    #         max_long_elements = self.processor.get_value("memory.max_long_elements")
+
+    #         curr_work_elements = self.processor.get_value("memory.work_mem.size")
+    #         curr_long_elements = self.processor.get_value("memory.long_mem.size")
+
+            # self.work_mem_gauge.setFormat(f"{curr_work_elements} / {max_work_elements}")
+            # self.work_mem_gauge.setValue(
+            #     round(curr_work_elements / max_work_elements * 100)
+            # )
+
+            # self.long_mem_gauge.setFormat(f"{curr_long_elements} / {max_long_elements}")
+            # self.long_mem_gauge.setValue(
+            #     round(curr_long_elements / max_long_elements * 100)
+            # )
+
+        # except AttributeError:
+        #     self.work_mem_gauge.setFormat("Unknown")
+        #     self.long_mem_gauge.setFormat("Unknown")
+        #     self.work_mem_gauge.setValue(0)
+        #     self.long_mem_gauge.setValue(0)
+
+    def update_memory_stack(self):
         try:
-            max_work_elements = self.processor.get_value("memory.max_work_elements")
-            max_long_elements = self.processor.get_value("memory.max_long_elements")
-
-            curr_work_elements = self.processor.get_value("memory.work_mem.size")
-            curr_long_elements = self.processor.get_value("memory.long_mem.size")
-
-            self.work_mem_gauge.setFormat(f"{curr_work_elements} / {max_work_elements}")
-            self.work_mem_gauge.setValue(
-                round(curr_work_elements / max_work_elements * 100)
-            )
-
-            self.long_mem_gauge.setFormat(f"{curr_long_elements} / {max_long_elements}")
-            self.long_mem_gauge.setValue(
-                round(curr_long_elements / max_long_elements * 100)
-            )
+            current_stack = self.processor.get_value("memory.cur_k")
+            max_stack = self.processor.get_value("memory.max_k")
+            self.mem_stack_gauge.setFormat(f"{current_stack} / {max_stack}")
+            self.mem_stack_gauge.setValue(round(current_stack / max_stack * 100))
 
         except AttributeError:
-            self.work_mem_gauge.setFormat("Unknown")
-            self.long_mem_gauge.setFormat("Unknown")
-            self.work_mem_gauge.setValue(0)
-            self.long_mem_gauge.setValue(0)
-
-    def on_work_min_change(self):
-        if self.initialized:
-            self.work_mem_min.setValue(
-                min(self.work_mem_min.value(), self.work_mem_max.value() - 1)
-            )
-            self.update_config()
-
-    def on_work_max_change(self):
-        if self.initialized:
-            self.work_mem_max.setValue(
-                max(self.work_mem_max.value(), self.work_mem_min.value() + 1)
-            )
-            self.update_config()
+            self.mem_stack_gauge.setFormat("Unknown")
+            self.mem_stack_gauge.setValue(0)
 
     def update_config(self):
         if self.initialized:
-            self.config["min_mid_term_frames"] = self.work_mem_min.value()
-            self.config["max_mid_term_frames"] = self.work_mem_max.value()
-            self.config["max_long_term_elements"] = self.long_mem_max.value()
-            self.config["num_prototypes"] = self.num_prototypes_box.value()
+            self.config["top_k"] = self.mem_top_k.value()
+            self.config["max_k"] = self.mem_max_k.value()
             self.config["mem_every"] = self.mem_every_box.value()
+            self.config["include_last"] = self.include_last_checkbox.isChecked()
 
             self.processor.update_config(config=self.config)
 
@@ -1053,7 +1049,7 @@ class App(QWidget):
         self.processor.clear_memory()
         torch.cuda.empty_cache()
         self.update_gpu_usage()
-        self.update_memory_size()
+        self.update_memory_stack()
 
     def _open_file(self, prompt):
         options = QFileDialog.Options()
@@ -1119,3 +1115,5 @@ class App(QWidget):
 
     def on_save_visualization_toggle(self):
         self.save_visualization = self.save_visualization_checkbox.isChecked()
+
+    
