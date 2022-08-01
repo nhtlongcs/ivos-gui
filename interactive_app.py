@@ -16,7 +16,6 @@ from inference.interact.wrapper import wrapper
 
 from model.network import XMem
 from inference.interact.s2m_controller import S2MController
-from inference.interact.fbrs_controller import FBRSController
 from inference.interact.reference_controller import ReferenceController
 from inference.inference_core import InferenceCore
 
@@ -110,14 +109,6 @@ if __name__ == "__main__":
     s2m_controller = wrapper(S2MController, api_url=api_url.format(HOST, PORT, "s2m"))
     refer_controller = wrapper(ReferenceController, api_url=api_url.format(HOST, PORT, 'refer'))
 
-    if args.fbrs_model is not None:
-        fbrs_controller = wrapper(
-            FBRSController, api_url=api_url.format(HOST, PORT, "fbrs")
-        )
-        fbrs_controller.__init__()
-    else:
-        fbrs_controller = None
-
     refer_controller.__init__()
     s2m_controller.__init__(num_objects=args.num_objects, ignore_class=255)
     processor.__init__(config=config)
@@ -127,5 +118,5 @@ if __name__ == "__main__":
     )  # local resource manager (for caching, saving, etc.)
 
     app = QApplication(sys.argv)
-    ex = App(processor, resource_manager, s2m_controller, fbrs_controller, refer_controller, config)
+    ex = App(processor, resource_manager, s2m_controller, refer_controller, config)
     sys.exit(app.exec_())

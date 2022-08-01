@@ -50,13 +50,13 @@ from model.network import XMem
 
 from inference.inference_core import InferenceCore
 from .s2m_controller import S2MController
-from .fbrs_controller import FBRSController
 from .reference_controller import ReferenceController
 
 from .interactive_utils import *
 from .interaction import *
 from .resource_manager import ResourceManager
 from .gui_utils import *
+from .classnames import FLARE22_CLASSNAMES
 
 
 class App(QWidget):
@@ -65,7 +65,6 @@ class App(QWidget):
         processor: InferenceCore,
         resource_manager: ResourceManager,
         s2m_ctrl: S2MController,
-        fbrs_ctrl: FBRSController,
         refer_ctrl: ReferenceController,
         config,
     ):
@@ -74,7 +73,6 @@ class App(QWidget):
         self.initialized = False
         self.num_objects = config["num_objects"]
         self.s2m_controller = s2m_ctrl
-        self.fbrs_controller = fbrs_ctrl
         self.refer_controller = refer_ctrl
         self.config = config
         self.processor = processor
@@ -112,6 +110,14 @@ class App(QWidget):
         self.lcd.setMaximumHeight(28)
         self.lcd.setMaximumWidth(120)
         self.lcd.setText("{: 4d} / {: 4d}".format(0, self.num_frames - 1))
+
+
+        # Classnames
+        self.classnames_lcd = QTextEdit()
+        self.classnames_lcd.setReadOnly(True)
+        self.classnames_lcd.setMaximumHeight(28)
+        self.classnames_lcd.setMaximumWidth(240)
+        self.classnames_lcd.setText("Background")
 
         # timeline slider
         self.tl_slider = QSlider(Qt.Horizontal)
@@ -156,15 +162,12 @@ class App(QWidget):
         self.curr_interaction = "Scribble"
         self.interaction_group = QButtonGroup()
         self.radio_refer = QRadioButton("Refer")
-        self.radio_fbrs = QRadioButton("Click")
         self.radio_s2m = QRadioButton("Scribble")
         self.radio_free = QRadioButton("Free")
         self.interaction_group.addButton(self.radio_refer)
-        self.interaction_group.addButton(self.radio_fbrs)
         self.interaction_group.addButton(self.radio_s2m)
         self.interaction_group.addButton(self.radio_free)
         self.radio_refer.toggled.connect(self.interaction_radio_clicked)
-        self.radio_fbrs.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
         self.radio_refer.toggle()
@@ -262,7 +265,6 @@ class App(QWidget):
         interact_topbox.setAlignment(Qt.AlignCenter)
         interact_topbox.addWidget(self.radio_refer)
         interact_topbox.addWidget(self.radio_s2m)
-        interact_topbox.addWidget(self.radio_fbrs)
         interact_topbox.addWidget(self.radio_free)
         interact_topbox.addWidget(self.brush_label)
         interact_botbox.addWidget(self.brush_slider)
@@ -293,6 +295,7 @@ class App(QWidget):
         mini_label = QLabel("Minimap")
         mini_label.setAlignment(Qt.AlignTop)
         minimap_area.addWidget(mini_label)
+        minimap_area.addWidget(self.classnames_lcd)
 
         # Minimap zooming
         minimap_ctrl = QHBoxLayout()
@@ -411,10 +414,6 @@ class App(QWidget):
         self.last_interaction = self.curr_interaction
         if self.radio_s2m.isChecked():
             self.curr_interaction = "Scribble"
-            self.brush_size = 3
-            self.brush_slider.setDisabled(True)
-        elif self.radio_fbrs.isChecked():
-            self.curr_interaction = "Click"
             self.brush_size = 3
             self.brush_slider.setDisabled(True)
         elif self.radio_refer.isChecked():
@@ -590,8 +589,6 @@ class App(QWidget):
         self.complete_interaction()
         self.clear_visualization()
         self.interaction = None
-        if self.fbrs_controller is not None:
-            self.fbrs_controller.unanchor()
 
     def set_viz_mode(self):
         self.viz_mode = self.combo.currentText()
@@ -766,8 +763,6 @@ class App(QWidget):
         if number == self.current_object:
             return
         self.current_object = number
-        if self.fbrs_controller is not None:
-            self.fbrs_controller.unanchor()
         self.console_push_text(f"Current object changed to {number}.")
         self.clear_brush()
         self.vis_brush(self.last_ex, self.last_ey)
@@ -828,21 +823,6 @@ class App(QWidget):
                     image, self.current_mask, (h, w), self.num_objects
                 )
                 new_interaction.set_size(self.brush_size)
-        elif self.curr_interaction == "Click":
-            if (
-                last_interaction is None
-                or type(last_interaction) != ClickInteraction
-                or last_interaction.tar_obj != self.current_object
-            ):
-                self.complete_interaction()
-                self.fbrs_controller.unanchor()
-                new_interaction = ClickInteraction(
-                    image,
-                    self.current_prob,
-                    (h, w),
-                    self.fbrs_controller,
-                    self.current_object,
-                )
         elif self.curr_interaction == "Refer":
             if (
                 last_interaction is None
@@ -874,6 +854,10 @@ class App(QWidget):
                 self.vis_map, self.vis_alpha = self.interaction.push_point(
                     ex, ey, obj, (self.vis_map, self.vis_alpha)
                 )
+
+        classname = FLARE22_CLASSNAMES[int(self.current_mask[int(ey), int(ex)])]
+        self.classnames_lcd.setText(classname)
+
         self.update_interact_vis()
         self.update_minimap()
 
@@ -906,11 +890,6 @@ class App(QWidget):
             interaction.end_path()
             if self.curr_interaction == "Free":
                 self.clear_visualization()
-        elif self.curr_interaction == "Click":
-            ex, ey = self.get_scaled_pos(event.x(), event.y())
-            self.vis_map, self.vis_alpha = interaction.push_point(
-                ex, ey, self.right_click, (self.vis_map, self.vis_alpha)
-            )
         elif self.curr_interaction == "Refer":
             interaction.push_point(
                 self.cursur / self.num_frames
