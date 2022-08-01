@@ -152,10 +152,6 @@ class InferenceCoreNew:
     def step(self, image, mask=None, valid_labels=None, end=False):
         # image: 3*H*W
         # mask: num_objects*H*W or None
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
         if isinstance(image, str):
             image_np = pickle.loads(image.encode("latin-1"))
             ori_c, ori_h, ori_w = image_np.shape
