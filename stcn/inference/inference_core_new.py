@@ -85,25 +85,8 @@ class InferenceCoreNew:
         self.memory.flush()
 
     def encode_key(self, image):
-        result = self.network.encode_key(image.to(self.device))
+        result = self.network.encode_key(image)
         return result
-
-    def _encode_masks(self, masks):
-        """
-        Input masks from _load_mask(), but in shape [B, H, W]
-        Output should be one-hot encoding of segmentation masks [B, NC, H, W]
-        """
-
-        one_hot = torch.nn.functional.one_hot(
-            masks.long(), num_classes=self.k
-        )  # (H,W,NC)
-        one_hot = one_hot.permute(2, 0, 1)  # (NC,H,W)
-        return one_hot.float()
-
-    def efficient_encode(self, ref_frames):
-        msk = self._encode_masks(ref_frames)
-        msk = msk[1:].unsqueeze(1)
-        return msk
 
 
     def interact(self, frame, mask):
@@ -111,9 +94,9 @@ class InferenceCoreNew:
         # KV pair for the interacting frame
         key_k, _, qf16, _, _ = self.encode_key(frame)
         key_v = self.network.encode_value(
-            frame.to(self.device),
+            frame,
             qf16,
-            prob[1:].to(self.device),
+            prob[1:],
         )
         key_k = key_k.unsqueeze(2)
 
@@ -130,7 +113,7 @@ class InferenceCoreNew:
         out_mask = aggregate(out_mask, keep_bg=True)
         if self.include_last or is_mem_frame:
             prev_value = self.network.encode_value(
-                frame.to(self.device), qf16, out_mask[1:].to(self.device)
+                frame, qf16, out_mask[1:]
             )
             prev_key = k16.unsqueeze(2)
             self.memory.add_memory(
@@ -161,11 +144,14 @@ class InferenceCoreNew:
         else:
             ori_c, ori_h, ori_w = image.shape
 
+        image = image.to(self.device)
+
         if isinstance(mask, str):
             mask_np = pickle.loads(mask.encode("latin-1"))
             # resized = cv2.resize(np.squeeze(mask_np, 0), (512,512), 0, 0, interpolation = cv2.INTER_NEAREST)
             # resized = np.expand_dims(resized, 0)
             mask = torch.from_numpy(mask_np)
+            mask = mask.to(self.device)
 
         self.curr_ti += 1
         image, self.pad = pad_divide_by(image, 16)
@@ -180,7 +166,8 @@ class InferenceCoreNew:
         )
 
         if need_segment:
-            result = self.do_pass(image, is_mem_frame)
+            with torch.no_grad():
+                result = self.do_pass(image, is_mem_frame)
         else:
             result = None
 
@@ -188,7 +175,8 @@ class InferenceCoreNew:
             mask, _ = pad_divide_by(mask, 16)
             mask = mask.unsqueeze(1)
             # NC, 1 , H, W 
-            self.interact(image, mask)
+            with torch.no_grad():
+                self.interact(image, mask)
             result = aggregate(mask, dim=0, keep_bg=True)
         
         if is_mem_frame:
@@ -196,6 +184,7 @@ class InferenceCoreNew:
 
         if result is not None:
             result = unpad(result, self.pad) # (num_obj + 1, H, W)
-            result = result.squeeze()
+            result = result.squeeze().cpu()
 
+        torch.cuda.empty_cache()
         return result
