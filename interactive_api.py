@@ -119,7 +119,6 @@ with torch.no_grad():
                     'max_k': 200,
                     'num_objects': 14,
                     'device': 'cuda',
-                    'strategy': 'argmax',
                     'include_last': True ,
                 })
                 print("InferenceCore loaded")
