@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 Cython
 scipy
+ml_collections
+segmentation-models-pytorch
