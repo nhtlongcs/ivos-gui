@@ -29,6 +29,10 @@ class MemoryBankWithFlush:
 
         self.num_objects = k
 
+    def update_config(self, config):
+        self.top_k = config['top_k']
+        self.max_k = config['max_k']
+
     def _global_matching(self, mk, qk):
         # NE means number of elements -- typically T*H*W
         B, CK, NE = mk.shape
