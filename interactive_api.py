@@ -46,7 +46,7 @@ s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
 stcn_path = "saves/stcn_flare22.pth"
-reference_path = "saves/transunetpe.pth"
+reference_path = "saves/cps_transunet_dlv3p.pth"
 # get attribute from a.b.c
 
 
