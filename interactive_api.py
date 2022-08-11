@@ -1,6 +1,5 @@
 import logging
 from functools import wraps
-
 import torch
 from fastapi import FastAPI
 
@@ -10,6 +9,13 @@ from inference.interact.s2m.s2m_network import deeplabv3plus_resnet50 as S2M
 from inference.interact.s2m_controller import S2MController
 from inference.device import detach
 from model.network import XMem
+
+from inference.interact.reference_controller import ReferenceController
+
+from stcn.networks.eval_network import STCNEval
+from stcn.inference.inference_core_new import InferenceCoreNew 
+
+
 import pickle
 import numpy as np
 
@@ -34,10 +40,13 @@ processor = None
 s2m_model = None
 s2m_controller = None
 fbrs_controller = None
+refer_controller = None
 
 s2m_model_path = "saves/s2m.pth"
 fbrs_model_path = "saves/fbrs.pth"
 network_path = "saves/XMem.pth"
+stcn_path = "saves/stcn_flare22.pth"
+reference_path = "saves/cps_transunet_dlv3p.pth"
 # get attribute from a.b.c
 
 
@@ -64,84 +73,133 @@ def get_attr(obj, attr_str):
         obj = getattr(obj, attr)
     return obj
 
+import torch 
+with torch.no_grad():
 
-@arg_logger
-@app.post("/api/network/")
-def core_interact(request: dict):
-    global processor
-    if "var_name" in request:
-        try:
-            result = get_attr(processor, request["var_name"])
-            return {"value": result, "code": 0}
-        except:
-            return {"value": "error", "code": -1}
+    @arg_logger
+    @app.post("/api/network/")
+    def core_interact(request: dict):
+        global processor
+        if "var_name" in request:
+            try:
+                result = get_attr(processor, request["var_name"])
+                return {"value": result, "code": 0}
+            except:
+                return {"value": "error", "code": -1}
 
-    assert "func_name" in request
-    request.setdefault("args", {})
-    if request.get("args", None) is None:
-        request["args"] = {}
-    if request["func_name"] == "__init__":
-        if processor is None:
-            print("loading InferenceCore")
-            network = XMem(model_path=network_path, **request.get("args", {}))
-            processor = InferenceCore(network=network, **request.get("args", {}))
-            print("InferenceCore loaded")
+        assert "func_name" in request
+        request.setdefault("args", {})
+        if request.get("args", None) is None:
+            request["args"] = {}
+        if request["func_name"] == "__init__":
+            if processor is None:
+                print("loading InferenceCore")
+                # network = XMem(model_path=network_path, **request.get("args", {}))
+                # processor = InferenceCore(network=network, **request.get("args", {}))
+                
+                device = torch.device('cuda')
+                network = STCNEval(
+                    key_backbone="resnet50-mod",
+                    value_backbone="resnet18-mod",
+                    pretrained=False
+                ).to(device).eval()
 
-    else:
-        result = processor.__getattribute__(request["func_name"])(
-            **request.get("args", {})
-        )
-        result = custom_serializer(result)
-        return {"code": 0, "result": result}
-    return {"code": 0, "result": None}
+                state_dict = torch.load(stcn_path)["model"]
+                for k in list(state_dict.keys()):
+                    if k == "value_encoder.conv1.weight":
+                        if state_dict[k].shape[1] == 2:
+                            pads = torch.zeros((64, 1, 7, 7), device=state_dict[k].device)
+                            state_dict[k] = torch.cat([state_dict[k], pads], 1)
+                
+                network.load_state_dict(state_dict)
 
+                processor = InferenceCoreNew(network=network, config={
+                    'mem_every': 5,
+                    'top_k': 20,
+                    'max_k': 200,
+                    'num_objects': 14,
+                    'device': 'cuda',
+                    'include_last': True ,
+                })
+                print("InferenceCore loaded")
 
-@arg_logger
-@app.post("/api/s2m/")
-def s2m_interact(request: dict):
-    global s2m_controller
-    assert "func_name" in request
-    request.setdefault("args", {})
-    if request.get("args", None) is None:
-        request["args"] = {}
-    if request["func_name"] == "__init__":
-        if s2m_controller is None:
-            print("loading network")
-            if s2m_model_path is not None:
-                s2m_saved = torch.load(s2m_model_path)
-                s2m_model = S2M().cuda().eval()
-                s2m_model.load_state_dict(s2m_saved)
-            else:
-                s2m_model = None
-            s2m_controller = S2MController(s2m_net=s2m_model, **request.get("args", {}))
-            print("network loaded")
-    else:
-        result = s2m_controller.__getattribute__(request["func_name"])(
-            **request.get("args", {})
-        )
-        result = custom_serializer(result)
-        return {"code": 0, "result": result}
-    return {"code": 0, "result": None}
+        else:
+            result = processor.__getattribute__(request["func_name"])(
+                **request.get("args", {})
+            )
+            result = custom_serializer(result)
+            return {"code": 0, "result": result}
+        return {"code": 0, "result": None}
 
 
-@arg_logger
-@app.post("/api/fbrs/")
-def fbrs_interact(request: dict):
-    global fbrs_controller
-    assert "func_name" in request
-    request.setdefault("args", {})
-    if request.get("args", None) is None:
-        request["args"] = {}
-    if request["func_name"] == "__init__":
-        if fbrs_controller is None:
-            print("loading network")
-            fbrs_controller = FBRSController(checkpoint_path=fbrs_model_path)
-            print("network loaded")
+    @arg_logger
+    @app.post("/api/s2m/")
+    def s2m_interact(request: dict):
+        global s2m_controller
+        assert "func_name" in request
+        request.setdefault("args", {})
+        if request.get("args", None) is None:
+            request["args"] = {}
+        if request["func_name"] == "__init__":
+            if s2m_controller is None:
+                print("loading network")
+                if s2m_model_path is not None:
+                    s2m_saved = torch.load(s2m_model_path)
+                    s2m_model = S2M().cuda().eval()
+                    s2m_model.load_state_dict(s2m_saved)
+                else:
+                    s2m_model = None
+                s2m_controller = S2MController(s2m_net=s2m_model, **request.get("args", {}))
+                print("network loaded")
+        else:
+            result = s2m_controller.__getattribute__(request["func_name"])(
+                **request.get("args", {})
+            )
+            result = custom_serializer(result)
+            return {"code": 0, "result": result}
+        return {"code": 0, "result": None}
 
-    else:
-        result = fbrs_controller.__getattribute__(request["func_name"])(
-            **request.get("args", {})
-        )
-        result = custom_serializer(result)
-        return {"code": 0, "result": result}
-    return {"code": 0, "result": None}
+
+    # @arg_logger
+    # @app.post("/api/fbrs/")
+    # def fbrs_interact(request: dict):
+    #     global fbrs_controller
+    #     assert "func_name" in request
+    #     request.setdefault("args", {})
+    #     if request.get("args", None) is None:
+    #         request["args"] = {}
+    #     if request["func_name"] == "__init__":
+    #         if fbrs_controller is None:
+    #             print("loading network")
+    #             fbrs_controller = FBRSController(checkpoint_path=fbrs_model_path)
+    #             print("network loaded")
+
+    #     else:
+    #         result = fbrs_controller.__getattribute__(request["func_name"])(
+    #             **request.get("args", {})
+    #         )
+    #         result = custom_serializer(result)
+    #         return {"code": 0, "result": result}
+    #     return {"code": 0, "result": None}
+
+
+    @arg_logger
+    @app.post("/api/refer/")
+    def refer_interact(request: dict):
+        global refer_controller
+        assert "func_name" in request
+        request.setdefault("args", {})
+        if request.get("args", None) is None:
+            request["args"] = {}
+        if request["func_name"] == "__init__":
+            if refer_controller is None:
+                print("loading refer network") 
+                refer_controller = ReferenceController(checkpoint_path=reference_path,**request.get("args", {}))
+                print("network loaded")
+        else:
+            result = refer_controller.__getattribute__(request["func_name"])(
+                **request.get("args", {})
+            )
+            result = custom_serializer(result)
+            return {"code": 0, "result": result}
+        return {"code": 0, "result": None}

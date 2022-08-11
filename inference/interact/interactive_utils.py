@@ -6,12 +6,13 @@ import torch
 import torch.nn.functional as F
 from util.palette import davis_palette
 from dataset.range_transform import im_normalization
+from .colors import flare22_color_list
 
 def image_to_torch(frame: np.ndarray, device='cuda'):
     # frame: H*W*3 numpy array
-    frame = frame.transpose(2, 0, 1)
-    frame = torch.from_numpy(frame).float().to(device)/255
-    frame_norm = im_normalization(frame)
+    frame = frame.transpose(2, 0, 1)/255.0
+    frame_norm = torch.from_numpy(frame).float().to(device)
+    # frame_norm = im_normalization(frame)
     return frame_norm, frame
 
 def torch_prob_to_numpy_mask(prob):
@@ -26,12 +27,15 @@ def index_numpy_to_one_hot_torch(mask, num_classes):
 """
 Some constants fro visualization
 """
-color_map_np = np.frombuffer(davis_palette, dtype=np.uint8).reshape(-1, 3).copy()
+# color_map_np = np.frombuffer(davis_palette, dtype=np.uint8).reshape(-1, 3).copy()
 # scales for better visualization
-color_map_np = (color_map_np.astype(np.float32)*1.5).clip(0, 255).astype(np.uint8)
+color_map_np = np.array(flare22_color_list)
+color_map_np = ((color_map_np*255).astype(np.float32)*1.5).clip(0, 255).astype(np.uint8)
 color_map = color_map_np.tolist()
+    
 if torch.cuda.is_available():
     color_map_torch = torch.from_numpy(color_map_np).cuda() / 255
+    # color_map_torch = torch.from_numpy(color_map_np).cuda()
 
 grayscale_weights = np.array([[0.3,0.59,0.11]]).astype(np.float32)
 if torch.cuda.is_available():
@@ -110,11 +114,17 @@ def overlay_layer(image, mask, layer):
 def overlay_davis_torch(image, mask, alpha=0.5, fade=False):
     """ Overlay segmentation on top of RGB image. from davis official"""
     # Changes the image in-place to avoid copying
+
+    if isinstance(image, np.ndarray):
+        image = torch.from_numpy(image).float()
+
+    image = image.cpu()
+
     image = image.permute(1, 2, 0)
     im_overlay = image
     mask = torch.argmax(mask, dim=0)
 
-    colored_mask = color_map_torch[mask]
+    colored_mask = color_map_torch[mask].cpu()
     foreground = image*alpha + (1-alpha)*colored_mask
     binary_mask = (mask > 0)
     # Compose image

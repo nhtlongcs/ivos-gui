@@ -50,13 +50,13 @@ from model.network import XMem
 
 from inference.inference_core import InferenceCore
 from .s2m_controller import S2MController
-from .fbrs_controller import FBRSController
+from .reference_controller import ReferenceController
 
 from .interactive_utils import *
 from .interaction import *
 from .resource_manager import ResourceManager
 from .gui_utils import *
-
+from .classnames import FLARE22_CLASSNAMES
 
 class App(QWidget):
     def __init__(
@@ -64,7 +64,7 @@ class App(QWidget):
         processor: InferenceCore,
         resource_manager: ResourceManager,
         s2m_ctrl: S2MController,
-        fbrs_ctrl: FBRSController,
+        refer_ctrl: ReferenceController,
         config,
     ):
         super().__init__()
@@ -72,7 +72,7 @@ class App(QWidget):
         self.initialized = False
         self.num_objects = config["num_objects"]
         self.s2m_controller = s2m_ctrl
-        self.fbrs_controller = fbrs_ctrl
+        self.refer_controller = refer_ctrl
         self.config = config
         self.processor = processor
         self.processor.set_all_labels(all_labels=list(range(1, self.num_objects + 1)))
@@ -82,7 +82,7 @@ class App(QWidget):
         self.height, self.width = self.res_man.h, self.res_man.w
 
         # set window
-        self.setWindowTitle("XMem Demo")
+        self.setWindowTitle("Mask Propagation Demo")
         self.setGeometry(100, 100, self.width, self.height + 100)
         self.setWindowIcon(QIcon("docs/icon.png"))
 
@@ -109,6 +109,14 @@ class App(QWidget):
         self.lcd.setMaximumHeight(28)
         self.lcd.setMaximumWidth(120)
         self.lcd.setText("{: 4d} / {: 4d}".format(0, self.num_frames - 1))
+
+
+        # Classnames
+        self.classnames_lcd = QTextEdit()
+        self.classnames_lcd.setReadOnly(True)
+        self.classnames_lcd.setMaximumHeight(28)
+        self.classnames_lcd.setMaximumWidth(240)
+        self.classnames_lcd.setText("Background")
 
         # timeline slider
         self.tl_slider = QSlider(Qt.Horizontal)
@@ -150,18 +158,18 @@ class App(QWidget):
         self.save_visualization = False
 
         # Radio buttons for type of interactions
-        self.curr_interaction = "Click"
+        self.curr_interaction = "Scribble"
         self.interaction_group = QButtonGroup()
-        self.radio_fbrs = QRadioButton("Click")
+        self.radio_refer = QRadioButton("Refer")
         self.radio_s2m = QRadioButton("Scribble")
         self.radio_free = QRadioButton("Free")
-        self.interaction_group.addButton(self.radio_fbrs)
+        self.interaction_group.addButton(self.radio_refer)
         self.interaction_group.addButton(self.radio_s2m)
         self.interaction_group.addButton(self.radio_free)
-        self.radio_fbrs.toggled.connect(self.interaction_radio_clicked)
+        self.radio_refer.toggled.connect(self.interaction_radio_clicked)
         self.radio_s2m.toggled.connect(self.interaction_radio_clicked)
         self.radio_free.toggled.connect(self.interaction_radio_clicked)
-        self.radio_fbrs.toggle()
+        self.radio_s2m.toggle()
 
         # Main canvas -> QLabel
         self.main_canvas = QLabel()
@@ -173,6 +181,47 @@ class App(QWidget):
         self.main_canvas.mouseMoveEvent = self.on_mouse_motion
         self.main_canvas.setMouseTracking(True)  # Required for all-time tracking
         self.main_canvas.mouseReleaseEvent = self.on_mouse_release
+
+        # Legend canvas
+        class Legends(QWidget):
+            def __init__(self, image_path='docs/legends.png'):
+                super().__init__()
+                self.setWindowTitle("Color mapping")
+                self.legend_canvas = QLabel()
+                self.legend_canvas.setAlignment(Qt.AlignCenter)  
+                self.legend_pixmap = QPixmap(image_path)
+
+                self.legend_canvas.setPixmap(
+                    self.legend_pixmap
+                )
+
+                layout = QVBoxLayout()
+                layout.addWidget(self.legend_canvas)
+                self.setLayout(layout)
+
+            def isVisibleWidget(self):
+                if not self.visibleRegion().isEmpty():
+                    return True
+                return False
+
+            def toggle(self):
+                if self.isVisibleWidget():
+                    self.close()
+                else:
+                    self.show()
+                
+
+        self.legend_widget = Legends()
+
+        # Multiview canvas
+        self.num_views = 3
+        self.triple_canvas = QVBoxLayout()
+        self.triple_canvas.setAlignment(Qt.AlignRight)  
+        self.views_canvas = []
+        for i in range(self.num_views):
+            self.views_canvas.append(QLabel())
+            self.views_canvas[i].setMaximumSize(200,200)
+            self.triple_canvas.addWidget(self.views_canvas[i])
 
         # Minimap -> Also a QLbal
         self.minimap = QLabel()
@@ -190,12 +239,6 @@ class App(QWidget):
         self.clear_mem_button = QPushButton("Clear memory")
         self.clear_mem_button.clicked.connect(self.on_clear_memory)
 
-        self.work_mem_gauge, self.work_mem_gauge_layout = create_gauge(
-            "Working memory size"
-        )
-        self.long_mem_gauge, self.long_mem_gauge_layout = create_gauge(
-            "Long-term memory size"
-        )
         self.gpu_mem_gauge, self.gpu_mem_gauge_layout = create_gauge(
             "GPU mem. (all processes, w/ caching)"
         )
@@ -203,34 +246,34 @@ class App(QWidget):
             "GPU mem. (used by torch, w/o caching)"
         )
 
-        self.update_memory_size()
         self.update_gpu_usage()
 
-        self.work_mem_min, self.work_mem_min_layout = create_parameter_box(
-            1, 100, "Min. working memory frames", callback=self.on_work_min_change
+        self.mem_top_k, self.mem_top_k_layout = create_parameter_box(
+            20, 100, "Top k similarity", step=1, callback=self.update_config
         )
-        self.work_mem_max, self.work_mem_max_layout = create_parameter_box(
-            2, 100, "Max. working memory frames", callback=self.on_work_max_change
+
+        self.mem_max_k, self.mem_max_k_layout = create_parameter_box(
+            32, 1280, "Maximum memory stack", step=32, callback=self.update_config
         )
-        self.long_mem_max, self.long_mem_max_layout = create_parameter_box(
-            1000,
-            100000,
-            "Max. long-term memory size",
-            step=1000,
-            callback=self.update_config,
+
+        self.mem_stack_gauge, self.mem_stack_gauge_layout = create_gauge(
+            "Memory stack"
         )
-        self.num_prototypes_box, self.num_prototypes_box_layout = create_parameter_box(
-            32, 1280, "Number of prototypes", step=32, callback=self.update_config
-        )
+
         self.mem_every_box, self.mem_every_box_layout = create_parameter_box(
             1, 100, "Memory frame every (r)", callback=self.update_config
         )
-        self.work_mem_min.setValue(self.processor.get_value("memory.min_mt_frames"))
-        self.work_mem_max.setValue(self.processor.get_value("memory.max_mt_frames"))
-        self.long_mem_max.setValue(self.processor.get_value("memory.max_long_elements"))
-        self.num_prototypes_box.setValue(
-            self.processor.get_value("memory.num_prototypes")
+
+        self.include_last_checkbox = QCheckBox(self)
+        self.include_last_checkbox.setChecked(True)
+
+        self.mem_top_k.setValue(
+            self.processor.get_value("memory.top_k")
         )
+        self.mem_max_k.setValue(
+            self.processor.get_value("memory.max_k")
+        )
+        self.mem_stack_gauge.setValue(self.processor.get_value("memory.cur_k"))
         self.mem_every_box.setValue(self.processor.get_value("mem_every"))
 
         # import mask/layer
@@ -254,8 +297,8 @@ class App(QWidget):
         interact_topbox = QHBoxLayout()
         interact_botbox = QHBoxLayout()
         interact_topbox.setAlignment(Qt.AlignCenter)
+        interact_topbox.addWidget(self.radio_refer)
         interact_topbox.addWidget(self.radio_s2m)
-        interact_topbox.addWidget(self.radio_fbrs)
         interact_topbox.addWidget(self.radio_free)
         interact_topbox.addWidget(self.brush_label)
         interact_botbox.addWidget(self.brush_slider)
@@ -278,6 +321,7 @@ class App(QWidget):
 
         # Drawing area, main canvas and minimap
         draw_area = QHBoxLayout()
+        draw_area.addLayout(self.triple_canvas, 1)
         draw_area.addWidget(self.main_canvas, 4)
 
         # Minimap area
@@ -286,6 +330,7 @@ class App(QWidget):
         mini_label = QLabel("Minimap")
         mini_label.setAlignment(Qt.AlignTop)
         minimap_area.addWidget(mini_label)
+        minimap_area.addWidget(self.classnames_lcd)
 
         # Minimap zooming
         minimap_ctrl = QHBoxLayout()
@@ -296,16 +341,19 @@ class App(QWidget):
         minimap_area.addWidget(self.minimap)
 
         # Parameters
-        minimap_area.addLayout(self.work_mem_gauge_layout)
-        minimap_area.addLayout(self.long_mem_gauge_layout)
         minimap_area.addLayout(self.gpu_mem_gauge_layout)
         minimap_area.addLayout(self.torch_mem_gauge_layout)
         minimap_area.addWidget(self.clear_mem_button)
-        minimap_area.addLayout(self.work_mem_min_layout)
-        minimap_area.addLayout(self.work_mem_max_layout)
-        minimap_area.addLayout(self.long_mem_max_layout)
-        minimap_area.addLayout(self.num_prototypes_box_layout)
+        minimap_area.addLayout(self.mem_top_k_layout)
+        minimap_area.addLayout(self.mem_max_k_layout)
+        minimap_area.addLayout(self.mem_stack_gauge_layout)
         minimap_area.addLayout(self.mem_every_box_layout)
+
+        # include last
+        include_last_area = QHBoxLayout()
+        include_last_area.addWidget(QLabel("Use last frame as guidance"))
+        include_last_area.addWidget(self.include_last_checkbox)
+        minimap_area.addLayout(include_last_area)
 
         # import mask/layer
         import_area = QHBoxLayout()
@@ -392,6 +440,14 @@ class App(QWidget):
         # try to load the default overlay
         self._try_load_layer("./docs/ECCV-logo.png")
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Q:
+            print("Killing")
+            self.parent().close()
+        elif event.key() == Qt.Key_L:
+            self.legend_widget.toggle()
+        event.accept()
+
     def resizeEvent(self, event):
         self.show_current_frame()
 
@@ -406,8 +462,8 @@ class App(QWidget):
             self.curr_interaction = "Scribble"
             self.brush_size = 3
             self.brush_slider.setDisabled(True)
-        elif self.radio_fbrs.isChecked():
-            self.curr_interaction = "Click"
+        elif self.radio_refer.isChecked():
+            self.curr_interaction = "Refer"
             self.brush_size = 3
             self.brush_slider.setDisabled(True)
         elif self.radio_free.isChecked():
@@ -474,6 +530,26 @@ class App(QWidget):
                 )
             )
         )
+
+        # update multiview
+        for i in range(self.num_views):
+            view_viz = cv2.cvtColor(self.viz[...,i], cv2.COLOR_GRAY2RGB)
+            view_viz = get_visualization(
+                self.viz_mode, view_viz, self.current_mask, self.overlay_layer
+            )
+            view_viz = view_viz.astype(np.uint8)
+
+            qViewImg = QImage(
+                view_viz.data, width, height, bytesPerLine, QImage.Format_RGB888
+            )
+
+            self.views_canvas[i].setPixmap(
+                QPixmap(
+                    qViewImg.scaled(
+                        self.views_canvas[i].size(), Qt.KeepAspectRatio, Qt.FastTransformation
+                    )
+                )
+            )
 
         self.main_canvas_size = self.main_canvas.size()
         self.image_size = qImg.size()
@@ -579,8 +655,6 @@ class App(QWidget):
         self.complete_interaction()
         self.clear_visualization()
         self.interaction = None
-        if self.fbrs_controller is not None:
-            self.fbrs_controller.unanchor()
 
     def set_viz_mode(self):
         self.viz_mode = self.combo.currentText()
@@ -681,7 +755,8 @@ class App(QWidget):
             self.save_current_mask()
             self.show_current_frame(fast=True)
 
-            self.update_memory_size()
+            self.update_gpu_usage()
+            self.update_memory_stack()
             QApplication.processEvents()
 
             if self.cursur == 0 or self.cursur == self.num_frames - 1:
@@ -755,8 +830,6 @@ class App(QWidget):
         if number == self.current_object:
             return
         self.current_object = number
-        if self.fbrs_controller is not None:
-            self.fbrs_controller.unanchor()
         self.console_push_text(f"Current object changed to {number}.")
         self.clear_brush()
         self.vis_brush(self.last_ex, self.last_ey)
@@ -817,20 +890,17 @@ class App(QWidget):
                     image, self.current_mask, (h, w), self.num_objects
                 )
                 new_interaction.set_size(self.brush_size)
-        elif self.curr_interaction == "Click":
+        elif self.curr_interaction == "Refer":
             if (
                 last_interaction is None
-                or type(last_interaction) != ClickInteraction
-                or last_interaction.tar_obj != self.current_object
+                or type(last_interaction) != ReferenceInteraction
             ):
                 self.complete_interaction()
-                self.fbrs_controller.unanchor()
-                new_interaction = ClickInteraction(
+                new_interaction = ReferenceInteraction(
                     image,
                     self.current_prob,
                     (h, w),
-                    self.fbrs_controller,
-                    self.current_object,
+                    self.refer_controller,
                 )
 
         if new_interaction is not None:
@@ -851,6 +921,10 @@ class App(QWidget):
                 self.vis_map, self.vis_alpha = self.interaction.push_point(
                     ex, ey, obj, (self.vis_map, self.vis_alpha)
                 )
+
+        classname = FLARE22_CLASSNAMES[int(self.current_mask[int(ey), int(ex)])]
+        self.classnames_lcd.setText(classname)
+
         self.update_interact_vis()
         self.update_minimap()
 
@@ -883,15 +957,17 @@ class App(QWidget):
             interaction.end_path()
             if self.curr_interaction == "Free":
                 self.clear_visualization()
-        elif self.curr_interaction == "Click":
-            ex, ey = self.get_scaled_pos(event.x(), event.y())
-            self.vis_map, self.vis_alpha = interaction.push_point(
-                ex, ey, self.right_click, (self.vis_map, self.vis_alpha)
+        elif self.curr_interaction == "Refer":
+            interaction.push_point(
+                self.cursur / self.num_frames
             )
+            
 
         self.interacted_prob = interaction.predict()
         self.update_interacted_mask()
         self.update_gpu_usage()
+        self.update_memory_stack()
+
 
         self.pressed = self.right_click = False
 
@@ -925,51 +1001,47 @@ class App(QWidget):
     def on_gpu_timer(self):
         self.update_gpu_usage()
 
-    def update_memory_size(self):
+    # def update_memory_size(self):
+    #     try:
+    #         max_work_elements = self.processor.get_value("memory.max_work_elements")
+    #         max_long_elements = self.processor.get_value("memory.max_long_elements")
+
+    #         curr_work_elements = self.processor.get_value("memory.work_mem.size")
+    #         curr_long_elements = self.processor.get_value("memory.long_mem.size")
+
+            # self.work_mem_gauge.setFormat(f"{curr_work_elements} / {max_work_elements}")
+            # self.work_mem_gauge.setValue(
+            #     round(curr_work_elements / max_work_elements * 100)
+            # )
+
+            # self.long_mem_gauge.setFormat(f"{curr_long_elements} / {max_long_elements}")
+            # self.long_mem_gauge.setValue(
+            #     round(curr_long_elements / max_long_elements * 100)
+            # )
+
+        # except AttributeError:
+        #     self.work_mem_gauge.setFormat("Unknown")
+        #     self.long_mem_gauge.setFormat("Unknown")
+        #     self.work_mem_gauge.setValue(0)
+        #     self.long_mem_gauge.setValue(0)
+
+    def update_memory_stack(self):
         try:
-            max_work_elements = self.processor.get_value("memory.max_work_elements")
-            max_long_elements = self.processor.get_value("memory.max_long_elements")
-
-            curr_work_elements = self.processor.get_value("memory.work_mem.size")
-            curr_long_elements = self.processor.get_value("memory.long_mem.size")
-
-            self.work_mem_gauge.setFormat(f"{curr_work_elements} / {max_work_elements}")
-            self.work_mem_gauge.setValue(
-                round(curr_work_elements / max_work_elements * 100)
-            )
-
-            self.long_mem_gauge.setFormat(f"{curr_long_elements} / {max_long_elements}")
-            self.long_mem_gauge.setValue(
-                round(curr_long_elements / max_long_elements * 100)
-            )
+            current_stack = self.processor.get_value("memory.cur_k")
+            max_stack = self.processor.get_value("memory.max_k")
+            self.mem_stack_gauge.setFormat(f"{current_stack} / {max_stack}")
+            self.mem_stack_gauge.setValue(round(current_stack / max_stack * 100))
 
         except AttributeError:
-            self.work_mem_gauge.setFormat("Unknown")
-            self.long_mem_gauge.setFormat("Unknown")
-            self.work_mem_gauge.setValue(0)
-            self.long_mem_gauge.setValue(0)
-
-    def on_work_min_change(self):
-        if self.initialized:
-            self.work_mem_min.setValue(
-                min(self.work_mem_min.value(), self.work_mem_max.value() - 1)
-            )
-            self.update_config()
-
-    def on_work_max_change(self):
-        if self.initialized:
-            self.work_mem_max.setValue(
-                max(self.work_mem_max.value(), self.work_mem_min.value() + 1)
-            )
-            self.update_config()
+            self.mem_stack_gauge.setFormat("Unknown")
+            self.mem_stack_gauge.setValue(0)
 
     def update_config(self):
         if self.initialized:
-            self.config["min_mid_term_frames"] = self.work_mem_min.value()
-            self.config["max_mid_term_frames"] = self.work_mem_max.value()
-            self.config["max_long_term_elements"] = self.long_mem_max.value()
-            self.config["num_prototypes"] = self.num_prototypes_box.value()
+            self.config["top_k"] = self.mem_top_k.value()
+            self.config["max_k"] = self.mem_max_k.value()
             self.config["mem_every"] = self.mem_every_box.value()
+            self.config["include_last"] = self.include_last_checkbox.isChecked()
 
             self.processor.update_config(config=self.config)
 
@@ -977,7 +1049,7 @@ class App(QWidget):
         self.processor.clear_memory()
         torch.cuda.empty_cache()
         self.update_gpu_usage()
-        self.update_memory_size()
+        self.update_memory_stack()
 
     def _open_file(self, prompt):
         options = QFileDialog.Options()
@@ -1043,3 +1115,5 @@ class App(QWidget):
 
     def on_save_visualization_toggle(self):
         self.save_visualization = self.save_visualization_checkbox.isChecked()
+
+    
